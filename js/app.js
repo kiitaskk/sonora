@@ -3,6 +3,7 @@ import { requestPersistence, storageEstimate } from './db.js';
 import { icon } from './icons.js';
 import { initPlayer, isIOS, onProgress, P, Player } from './player.js';
 import * as S from './store.js';
+import * as IMP from './importer.js';
 import {
   art,
   closeSheet,
@@ -36,6 +37,7 @@ const ui = {
   importing: null,
   plEdit: false,
   playerOpen: false,
+  showMissing: true,
   hintClosed: localStorage.getItem('sonora-hint') === '1',
 };
 /** Listes affichées : data-play="nom:index" lance la lecture depuis la bonne liste. */
@@ -257,14 +259,15 @@ const VIEWS = {
   playlists() {
     const pls = S.state.playlists;
     let html = `<div class="row-between pad" style="margin-bottom:12px"><h1 class="title">Playlists</h1><button class="icon-btn accent" data-act="new-pl" aria-label="Nouvelle playlist">${icon('plusCircle', 30)}</button></div>
-      <button class="list-row" style="width:100%;text-align:left" data-go="#/favorites"><div class="fav-art">${icon('heart', 28)}</div><div style="flex:1"><div class="t">Titres likés</div><div class="muted" style="font-size:13px">Playlist automatique · ${plural(S.state.favorites.length, 'titre')}</div></div><span class="faint">${icon('right', 20)}</span></button>`;
+      <button class="list-row" style="width:100%;text-align:left" data-go="#/favorites"><div class="fav-art">${icon('heart', 28)}</div><div style="flex:1"><div class="t">Titres likés</div><div class="muted" style="font-size:13px">Playlist automatique · ${plural(S.state.favorites.length, 'titre')}</div></div><span class="faint">${icon('right', 20)}</span></button>
+      <button class="list-row" style="width:100%;text-align:left" data-act="import-pl"><div class="fav-art" style="background:linear-gradient(135deg,#a238ff,#ef5466)">${icon('import', 26)}</div><div style="flex:1"><div class="t">Importer une playlist</div><div class="muted" style="font-size:13px">Lien Deezer, export Spotify, liste…</div></div><span class="faint">${icon('right', 20)}</span></button>`;
     if (!pls.length) return html + emptyState('playlists', 'Crée ta première playlist', 'Autant de playlists que tu veux, avec ton image et l’ordre de ton choix.', `<button class="btn grad" data-act="new-pl">${icon('plus', 18)}Nouvelle playlist</button>`);
     return (
       html +
       pls
         .map(
           (p) => `<button class="list-row" style="width:100%;text-align:left" data-go="#/playlist/${p.id}">${art(p.imageKey, p.id, 64, { radius: 12, ic: 'playlists' })}
-          <div style="flex:1;min-width:0"><div class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.name)}</div><div class="muted" style="font-size:13px">${plural(p.trackIds.length, 'titre')}</div></div><span class="faint">${icon('right', 20)}</span></button>`,
+          <div style="flex:1;min-width:0"><div class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.name)}</div><div class="muted" style="font-size:13px">${plural(p.trackIds.length, 'titre')}${p.missing?.length ? ` · ${p.missing.length} en attente` : ''}${p.source && p.source !== 'Liste' ? ` · ${esc(p.source)}` : ''}</div></div><span class="faint">${icon('right', 20)}</span></button>`,
         )
         .join('')
     );
@@ -287,7 +290,13 @@ const VIEWS = {
       <div class="actions-row"><button class="btn ghost sm" data-act="pl-add" data-id="${p.id}">${icon('plus', 16)}Ajouter</button><div style="flex:1"></div>
         <button class="icon-btn" data-act="shuffle-list" data-list="pl" ${tracks.length ? '' : 'disabled'} aria-label="Aléatoire">${icon('shuffle', 26)}</button>
         <button class="play-big" data-act="play" data-play="pl:0" data-noshuffle="1" ${tracks.length ? '' : 'disabled'} aria-label="Lire">${icon('play', 28)}</button></div></div>`;
-    if (!tracks.length) return html + emptyState('note', 'Playlist vide', 'Ajoute des morceaux avec « Ajouter » ou depuis le menu ••• d’un titre.');
+    const miss = p.missing || [];
+    const missHtml = miss.length
+      ? `<div class="section" style="margin-top:20px"><button class="section-title" style="width:100%" data-act="toggle-missing"><h2 style="font-size:17px">En attente · ${miss.length}</h2><span class="faint">${icon(ui.showMissing ? 'up' : 'down', 20)}</span></button>
+        <p class="muted pad" style="font-size:13px;line-height:1.4;margin-top:-6px">Ces titres ne sont pas encore dans ta bibliothèque. Importe leurs fichiers : ils s’ajouteront tout seuls à cette playlist.</p>
+        ${ui.showMissing ? miss.map((m) => `<div class="trow" style="opacity:.55"><div class="art" style="width:44px;height:44px;border-radius:8px;background:var(--card2)"><span class="art-ic" style="color:var(--faint)">${icon('note', 18)}</span></div><div class="meta"><div class="t" style="font-size:15px">${esc(m.title)}</div><div class="s">${esc(m.artist || 'Artiste inconnu')}</div></div></div>`).join('') + `<div class="btns" style="margin-top:8px"><button class="btn ghost sm" data-act="import">${icon('import', 16)}Importer des fichiers</button><button class="btn ghost sm" style="color:var(--danger)" data-act="clear-missing" data-id="${p.id}">Ne plus attendre</button></div>` : ''}</div>`
+      : '';
+    if (!tracks.length) return html + (miss.length ? '' : emptyState('note', 'Playlist vide', 'Ajoute des morceaux avec « Ajouter » ou depuis le menu ••• d’un titre.')) + missHtml;
     html += tracks
       .map((t, i) =>
         trackRow(t, 'pl', i, {
@@ -299,7 +308,7 @@ const VIEWS = {
         }),
       )
       .join('');
-    return html;
+    return html + missHtml;
   },
 
   favorites() {
@@ -742,6 +751,108 @@ function plAddSheet(pid) {
   draw(el);
 }
 
+/* ======================= IMPORT DE PLAYLIST EXTERNE ======================= */
+function importPlaylistSheet(prefill = '') {
+  openSheet(
+    `<div class="dlg">
+      <h3>Importer une playlist</h3>
+      <p class="muted" style="line-height:1.45">SONORA récupère la <b>liste des titres</b> et les retrouve dans ta bibliothèque. Aucune musique n’est téléchargée : les titres absents restent « en attente » jusqu’à ce que tu importes leurs fichiers.</p>
+      <label class="lbl" for="pl-link" style="margin-bottom:-8px">Lien de la playlist Deezer</label>
+      <input class="field" id="pl-link" placeholder="https://www.deezer.com/fr/playlist/…" value="${esc(prefill)}" autocomplete="off" autocapitalize="off" inputmode="url" />
+      <button class="btn grad block" data-i="link">${icon('import', 18)}Importer depuis le lien</button>
+      <div id="pl-msg"></div>
+      <div style="height:1px;background:var(--border);margin:4px 0"></div>
+      <button class="btn ghost block" data-i="csv">${icon('share', 18)}Fichier CSV (Spotify, TuneMyMusic…)</button>
+      <button class="btn ghost block" data-i="text">${icon('edit', 18)}Coller une liste de titres</button>
+    </div>`,
+    (el, close) => {
+      const msg = (h) => ($('#pl-msg', el).innerHTML = h);
+      el.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-i]');
+        if (!b) return;
+        if (b.dataset.i === 'csv') {
+          const f = await pickFile('csv-input');
+          if (!f) return;
+          try {
+            close();
+            finishImport(IMP.parseCsv(await f[0].text(), f[0].name));
+          } catch (err) {
+            dialog({ title: 'Fichier non reconnu', text: err.message, ok: 'OK', cancel: 'Fermer' });
+          }
+          return;
+        }
+        if (b.dataset.i === 'text') return textImportSheet();
+        if (b.dataset.i === 'spotify-help') return spotifyHelp(msg);
+        // Lien
+        const link = $('#pl-link', el).value.trim();
+        const info = IMP.parseLink(link);
+        if (!link) return msg(`<p class="muted">Colle d’abord le lien de ta playlist.</p>`);
+        if (!info) return msg(`<p class="muted" style="color:var(--danger)">Lien non reconnu. Exemple : https://www.deezer.com/fr/playlist/123456</p>`);
+        if (info.service === 'spotify') return spotifyHelp(msg);
+        if (info.service === 'deezer-short')
+          return msg(`<p class="muted" style="line-height:1.45">C’est un lien court Deezer. Ouvre-le dans Safari : la page Deezer s’affiche avec une adresse du type <b>deezer.com/fr/playlist/123456</b>. Copie cette adresse complète (ou juste le numéro) et colle-la ici.</p>`);
+        if (info.service === 'other') return msg(`<p class="muted" style="line-height:1.45">Ce service n’est pas encore pris en charge par lien. Exporte ta playlist en CSV (par ex. avec TuneMyMusic) puis utilise « Fichier CSV ».</p>`);
+        b.disabled = true;
+        b.innerHTML = `${icon('import', 18)}Récupération…`;
+        try {
+          const list = await IMP.fetchDeezer(info, (n, total) => (b.innerHTML = `${icon('import', 18)}${n} / ${total} titres…`));
+          close();
+          finishImport(list);
+        } catch (err) {
+          b.disabled = false;
+          b.innerHTML = `${icon('import', 18)}Importer depuis le lien`;
+          msg(`<p class="muted" style="color:var(--danger);line-height:1.45">${esc(err.message)}</p>`);
+        }
+      });
+    },
+  );
+}
+
+function spotifyHelp(msg) {
+  msg(`<div class="card" style="padding:14px;line-height:1.5;font-size:14px">
+    <b>Spotify bloque la lecture des playlists par lien</b> pour les applications indépendantes (règles de février 2026). Passe par un export CSV, ça prend 1 minute :
+    <ol style="padding-left:20px;margin:8px 0">
+      <li>Ouvre <b>exportify.app</b> et connecte-toi à Spotify.</li>
+      <li>Touche <b>Export</b> à côté de ta playlist : un fichier .csv est enregistré dans l’app Fichiers.</li>
+      <li>Reviens ici et touche <b>Fichier CSV</b>.</li>
+    </ol>
+    <span class="muted">Fonctionne avec les playlists que tu as créées toi-même.</span></div>`);
+}
+
+function textImportSheet() {
+  openSheet(
+    `<div class="dlg"><h3>Coller une liste</h3>
+      <p class="muted" style="line-height:1.45">Une ligne par titre, de préférence sous la forme <b>Artiste - Titre</b>.</p>
+      <input class="field" id="tx-name" placeholder="Nom de la playlist" autocomplete="off" />
+      <textarea class="field" id="tx-list" rows="8" placeholder="Stromae - Alors on danse&#10;Daft Punk - One More Time" style="resize:vertical"></textarea>
+      <button class="btn grad block" data-t="go">${icon('check', 18)}Créer la playlist</button></div>`,
+    (el, close) =>
+      el.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-t="go"]')) return;
+        const list = IMP.parseText($('#tx-list', el).value);
+        if (!list.tracks.length) return toast('La liste est vide');
+        list.name = $('#tx-name', el).value.trim() || 'Playlist importée';
+        close();
+        finishImport(list);
+      }),
+  );
+}
+
+async function finishImport(list) {
+  if (!list.tracks.length) return dialog({ title: 'Playlist vide', text: 'Aucun titre trouvé dans cette playlist.', ok: 'OK', cancel: 'Fermer' });
+  const r = IMP.createFromImport(list);
+  location.hash = '#/playlist/' + r.id;
+  await new Promise((ok) => setTimeout(ok, 120)); // laisse la navigation se faire avant d'ouvrir le message
+  await dialog({
+    title: `« ${list.name} » importée`,
+    text:
+      `${r.found} titre${r.found > 1 ? 's' : ''} sur ${r.total} trouvé${r.found > 1 ? 's' : ''} dans ta bibliothèque.` +
+      (r.missing ? ` ${r.missing} en attente : importe leurs fichiers et ils s’ajouteront automatiquement à la playlist.` : ' Tout est prêt !'),
+    ok: r.found ? 'Écouter' : 'OK',
+    cancel: 'Fermer',
+  }).then((v) => v && r.found && Player.playList(S.getPlaylist(r.id).trackIds, 0, { shuffle: false }));
+}
+
 async function deleteTracks(ids, after) {
   const ok = await dialog({
     title: ids.length > 1 ? `Supprimer ${ids.length} morceaux ?` : 'Supprimer ce morceau ?',
@@ -768,10 +879,12 @@ async function doImport() {
     S.emit();
   });
   ui.importing = null;
+  const filled = res.imported ? IMP.fillMissing() : 0;
   const parts = [];
   if (res.imported) parts.push(`${res.imported} importé${res.imported > 1 ? 's' : ''}`);
   if (res.duplicates) parts.push(`${res.duplicates} déjà présent${res.duplicates > 1 ? 's' : ''}`);
   if (res.skipped.length) parts.push(`${res.skipped.length} ignoré${res.skipped.length > 1 ? 's' : ''}`);
+  if (filled) parts.push(`${filled} ajouté${filled > 1 ? 's' : ''} à tes playlists`);
   toast(parts.join(' · ') || 'Aucun fichier importé');
   if (res.skipped.length) dialog({ title: 'Certains fichiers ont été ignorés', text: 'Formats acceptés : MP3, WAV, FLAC, AAC, M4A, OGG.\n' + res.skipped.slice(0, 6).join(', '), ok: 'OK', cancel: 'Fermer' });
   S.emit();
@@ -812,6 +925,11 @@ const ACTS = {
     const id = S.createPlaylist(name);
     toast('Playlist créée');
     location.hash = '#/playlist/' + id;
+  },
+  'import-pl': () => importPlaylistSheet(),
+  'toggle-missing': () => ((ui.showMissing = !ui.showMissing), render()),
+  async 'clear-missing'(el) {
+    if (await dialog({ title: 'Ne plus attendre ces titres ?', text: 'Ils seront retirés de la liste d’attente de cette playlist.', ok: 'Confirmer' })) S.patchPlaylist(el.dataset.id, { missing: [] });
   },
   'pl-edit': () => ((ui.plEdit = !ui.plEdit), render()),
   'pl-move': (el) => S.movePlaylistTrack(el.dataset.id, +el.dataset.i, +el.dataset.i + +el.dataset.d),

@@ -1,6 +1,6 @@
 // Service worker SONORA : met l'application en cache pour fonctionner sans Internet.
 // Les musiques elles-mêmes sont dans IndexedDB (pas ici).
-const VERSION = 'sonora-v1.0.0';
+const VERSION = 'sonora-v1.1.0';
 const SHELL = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const SHELL = [
   './js/tags.js',
   './js/player.js',
   './js/store.js',
+  './js/importer.js',
   './js/ui.js',
   './js/icons.js',
   './icons/icon-180.png',

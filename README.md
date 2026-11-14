@@ -38,6 +38,14 @@ Ensuite, plus besoin d'Internet : l'app et tes musiques sont sur le téléphone.
 Formats : MP3, M4A/AAC, WAV et FLAC fonctionnent sur iPhone. OGG et OPUS dépendent de la version d’iOS (seules les versions récentes de Safari les lisent) : si un fichier OGG ne se lance pas, convertis-le en MP3 ou M4A.
 Titre, artiste, album, genre, **pochette** et durée sont lus automatiquement dans les MP3, M4A et FLAC ; sinon ils sont déduits du nom du fichier (« Artiste - Titre.mp3 »).
 
+## 4. Importer une playlist Deezer ou Spotify
+
+**Playlists → Importer une playlist.** SONORA récupère la **liste des titres** et les retrouve dans ta bibliothèque (même avec « feat. », « Radio Edit », « Remastered »…). Aucune musique n'est téléchargée : les titres absents restent **en attente** et s'ajoutent automatiquement à la playlist dès que tu importes leurs fichiers.
+
+- **Deezer** : colle le lien de la playlist (`https://www.deezer.com/fr/playlist/123456`). La playlist doit être **publique**. Les liens courts (`link.deezer.com/…`) : ouvre-les dans Safari et copie l'adresse complète. Les liens d'albums marchent aussi.
+- **Spotify** : depuis février 2026, Spotify interdit aux applis indépendantes de lire une playlist par son lien. Passe par **exportify.app** → Export → fichier .csv → dans SONORA, « Fichier CSV ».
+- **Autres** (Apple Music, YouTube Music, Tidal…) : exporte en CSV avec un service comme TuneMyMusic, ou colle une liste « Artiste - Titre ».
+
 ---
 
 ## Fonctionnalités
@@ -74,6 +82,7 @@ styles.css             Identité visuelle SONORA (sombre/clair, accents)
 js/app.js              Pages, navigation, interactions
 js/player.js           Lecteur, file d'attente, écran verrouillé (Media Session)
 js/store.js            Bibliothèque, playlists, favoris, stats
+js/importer.js         Import de playlists (Deezer, CSV Spotify, liste)
 js/db.js               Stockage local (IndexedDB)
 js/tags.js             Lecture des tags MP3 / M4A / FLAC
 js/ui.js               Pochettes, dialogues, formatage

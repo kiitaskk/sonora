@@ -191,6 +191,7 @@ function patchPl(id, fn) {
   state.playlists = state.playlists.map((p) => (p.id === id ? fn(p) : p));
   changed();
 }
+export const patchPlaylist = (id, patch) => patchPl(id, (p) => ({ ...p, ...patch }));
 export const renamePlaylist = (id, name) => patchPl(id, (p) => ({ ...p, name: name.trim() || p.name }));
 export function addToPlaylist(id, ids) {
   let n = 0;
