@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>SONORA</title>
+  <meta name="description" content="Ta musique, sans pub, hors ligne." />
+  <meta name="theme-color" content="#08080C" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SONORA" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="icons/favicon-32.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <main id="view" class="view"></main>
+
+    <div id="mini" class="mini hidden" role="button" aria-label="Ouvrir le lecteur">
+      <div class="mini-art"></div>
+      <div class="mini-meta"><div class="mini-title"></div><div class="mini-artist"></div></div>
+      <button class="icon-btn" data-act="toggle" aria-label="Lecture/Pause"></button>
+      <button class="icon-btn" data-act="next" aria-label="Suivant"></button>
+      <div class="mini-progress"><div></div></div>
+    </div>
+
+    <nav id="tabs" class="tabs">
+      <a href="#/" data-tab="home"></a>
+      <a href="#/search" data-tab="search"></a>
+      <a href="#/library" data-tab="library"></a>
+      <a href="#/playlists" data-tab="playlists"></a>
+      <a href="#/settings" data-tab="settings"></a>
+    </nav>
+  </div>
+
+  <section id="player" class="player" aria-hidden="true"></section>
+  <div id="sheet-root"></div>
+  <div id="toast" class="toast"></div>
+  <input id="file-input" type="file" multiple accept="audio/*,.mp3,.wav,.flac,.aac,.m4a,.ogg,.oga,.opus" hidden />
+  <input id="image-input" type="file" accept="image/*" hidden />
+  <input id="backup-input" type="file" accept="application/json,.json" hidden />
+  <audio id="audio" preload="auto" playsinline></audio>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
