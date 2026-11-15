@@ -12,7 +12,7 @@ export const state = {
   history: [],
   playCounts: {},
   listenSeconds: {},
-  settings: { theme: 'dark', accent: 'aurora', sortKey: 'added', sortDesc: false, autoResume: true },
+  settings: { theme: 'dark', accent: 'aurora', sortKey: 'added', sortDesc: false, autoResume: true, crossfade: 0 },
   session: null,
 };
 

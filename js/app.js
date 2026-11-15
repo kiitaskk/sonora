@@ -1,7 +1,7 @@
 // SONORA — application web installable (PWA). Pages, navigation et interactions.
 import { requestPersistence, storageEstimate } from './db.js';
 import { icon } from './icons.js';
-import { initPlayer, isIOS, onProgress, P, Player } from './player.js';
+import { canFade, initPlayer, isIOS, onProgress, P, Player } from './player.js';
 import * as S from './store.js';
 import * as IMP from './importer.js';
 import {
@@ -447,6 +447,16 @@ const VIEWS = {
         <div class="swatches">${Object.entries(accents).map(([k, [n, a, b]]) => `<button class="swatch ${st.accent === k ? 'on' : ''}" data-act="accent" data-k="${k}"><i style="background:linear-gradient(135deg,${a},${b})">${st.accent === k ? icon('check', 20) : ''}</i>${n}</button>`).join('')}</div>
       </div>
       <div class="group-t">LECTURE</div><div class="group">
+        <div class="srow" style="flex-wrap:wrap;row-gap:4px">
+          <span class="si">${icon('shuffle', 18)}</span><span class="grow">Fondu enchaîné</span>
+          <b id="xfade-val" style="color:var(--a);font-variant-numeric:tabular-nums">${canFade ? (st.crossfade ? st.crossfade + ' s' : 'Désactivé') : 'Indisponible'}</b>
+          ${
+            canFade
+              ? `<input type="range" class="range seek" id="xfade" min="0" max="10" step="1" value="${st.crossfade || 0}" style="--p:${(st.crossfade || 0) * 10}%;flex-basis:100%;margin-top:4px" aria-label="Durée du fondu enchaîné" />
+                 <p class="muted" style="font-size:12px;flex-basis:100%">Le morceau suivant démarre pendant que l’actuel s’éteint : aucun blanc entre les titres.</p>`
+              : `<p class="muted" style="font-size:12px;flex-basis:100%">Sur iPhone, Safari interdit aux apps web de régler le volume : le fondu n’est pas possible. Les morceaux s’enchaînent normalement.</p>`
+          }
+        </div>
         ${row('repeat', 'Reprendre la dernière écoute', 'data-act="toggle-resume"', `<span class="switch ${st.autoResume ? 'on' : ''}"></span>`)}
         ${row('stats', 'Statistiques', 'data-go="#/stats"')}
         ${row('clock', 'Historique d’écoute', 'data-go="#/history"')}
@@ -1133,7 +1143,16 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#mini')) openPlayer();
 });
 
+view.addEventListener('change', (e) => {
+  if (e.target.id === 'xfade') S.setSettings({ crossfade: +e.target.value });
+});
 view.addEventListener('input', (e) => {
+  if (e.target.id === 'xfade') {
+    const v = +e.target.value;
+    e.target.style.setProperty('--p', v * 10 + '%');
+    $('#xfade-val').textContent = v ? v + ' s' : 'Désactivé';
+    return;
+  }
   if (e.target.id === 'q') {
     ui.q = e.target.value;
     renderSearchResults();

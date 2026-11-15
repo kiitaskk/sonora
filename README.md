@@ -73,6 +73,7 @@ iOS ne permet à aucune app de fouiller seule dans le téléphone : la sélectio
 - **Bibliothèque** : vues Morceaux / Artistes / Albums, tri (date, titre, artiste, album, durée, croissant/décroissant), sélection multiple (supprimer, ajouter à une playlist, lire ensuite).
 - **Recherche instantanée**, sans tenir compte des accents, par titre / artiste / album / genre, et parcours par genre.
 - **Accueil** : reprendre la dernière écoute, écoutés récemment, favoris, recommandations locales, plus écoutés.
+- **Fondu enchaîné** (Réglages → Lecture, de 0 à 10 s) : le morceau suivant démarre pendant que l'actuel s'éteint, sans aucun blanc. Disponible sur Android ; sur iPhone, Safari interdit aux apps web de régler le volume, donc le réglage y est indiqué comme indisponible.
 - **Minuteur de sommeil**, **historique** par jour, **statistiques** (temps d'écoute, top titres/artistes/genres, 7 derniers jours).
 - **Modifier** titre, artiste, album, genre et pochette ; appliquer une pochette à tout un album.
 - **Réglages** : thème sombre / clair / auto, 5 couleurs d'accent, espace utilisé, sauvegarde et restauration des playlists, tout supprimer.
