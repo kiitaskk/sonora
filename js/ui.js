@@ -108,7 +108,67 @@ export function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2300);
 }
 
+/* ------------------- bouton « retour » (Android) ------------------- */
+// Le bouton retour ferme d'abord le lecteur ou la feuille ouverte, au lieu de quitter l'app.
+// Une seule entrée d'historique « garde » est ajoutée tant qu'au moins un panneau est ouvert.
+const overlays = []; // fonctions de fermeture, la dernière = panneau du dessus
+let guard = !!history.state?.sonoraGuard;
+let guardHash = location.hash; // page sur laquelle la garde a été posée
+let skipping = false; // un retour automatique est en cours
+export function overlayOpened(closeFn) {
+  if (!overlays.includes(closeFn)) overlays.push(closeFn);
+  if (!guard) {
+    history.pushState({ sonoraGuard: 1 }, '');
+    guard = true;
+    guardHash = location.hash;
+  }
+}
+export function overlayClosed(closeFn) {
+  const i = overlays.lastIndexOf(closeFn);
+  if (i >= 0) overlays.splice(i, 1);
+}
+export function syncGuard() {
+  if (skipping) return;
+  guard = !!history.state?.sonoraGuard;
+  if (guard) guardHash = location.hash;
+}
+addEventListener('popstate', (e) => {
+  if (skipping) {
+    skipping = false;
+    guard = !!e.state?.sonoraGuard;
+    return;
+  }
+  if (e.state?.sonoraGuard) {
+    // Retour sur une ancienne « garde » (après une navigation) : on la saute
+    if (overlays.length) {
+      guard = true;
+      guardHash = location.hash;
+    } else {
+      guard = false; // on saute cette garde périmée, sans déclencher un 2e retour
+      skipping = true;
+      history.back();
+    }
+    return;
+  }
+  if (!guard) return;
+  guard = false;
+  // Changement de page (lien, navigation) : ce n'est pas un appui sur « retour »
+  if (location.hash !== guardHash) return;
+  if (overlays.length) {
+    overlays.pop()();
+    if (overlays.length) {
+      history.pushState({ sonoraGuard: 1 }, '');
+      guard = true;
+      guardHash = location.hash;
+    }
+  } else {
+    skipping = true;
+    history.back(); // la garde ne servait plus : on fait le vrai retour demandé
+  }
+});
+
 /* ------------------------------ feuille modale --------------------------- */
+const closeSheetFromBack = () => closeSheet();
 let sheetClose = null;
 export function openSheet(html, onMount) {
   closeSheet(true);
@@ -120,11 +180,13 @@ export function openSheet(html, onMount) {
   sheetClose = null;
   onMount?.(el, closeSheet);
   hydrateArt(el);
+  overlayOpened(closeSheetFromBack);
   return el;
 }
 export function closeSheet(instant) {
   const root = document.getElementById('sheet-root');
   if (!root.innerHTML) return;
+  overlayClosed(closeSheetFromBack);
   const f = sheetClose;
   sheetClose = null;
   f?.();

@@ -75,9 +75,9 @@ function dropUrl(key) {
 /* -------------------------------- import ------------------------------- */
 const extOf = (n) => (/\.([a-z0-9]+)$/i.exec(n)?.[1] || '').toLowerCase();
 
-export async function importFiles(files, onProgress) {
+export async function importFiles(files, onProgress, { accept } = {}) {
   const known = new Set(allTracks().map((t) => `${t.fileName}::${t.size}`));
-  const res = { imported: 0, duplicates: 0, skipped: [] };
+  const res = { imported: 0, duplicates: 0, skipped: [], ignored: 0 };
   const list = [...files];
   for (let i = 0; i < list.length; i++) {
     const f = list[i];
@@ -95,6 +95,11 @@ export async function importFiles(files, onProgress) {
       const id = uid();
       const tags = await readTags(f);
       const fn = tagsFromFileName(f.name);
+      // Mode « Retrouver les fichiers » : on n'enregistre que les morceaux recherchés
+      if (accept && !accept({ title: tags.title || fn.title, artist: tags.artist || fn.artist || '', fileName: f.name, duration: tags.duration || 0 })) {
+        res.ignored++;
+        continue;
+      }
       const audioKey = 'audio:' + id;
       await db.putBlob(audioKey, f);
       let artKey;

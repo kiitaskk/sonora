@@ -230,3 +230,36 @@ export function fillMissing() {
   }
   return added;
 }
+
+/**
+ * Fonction qui dit si un fichier correspond à un titre en attente
+ * (d'une playlist précise, ou de toutes les playlists si playlistId est absent).
+ */
+export function wantedMatcher(playlistId) {
+  const wanted = new Map();
+  for (const p of S.state.playlists) {
+    if (playlistId && p.id !== playlistId) continue;
+    for (const m of p.missing || []) {
+      for (const k of [cleanTitle(m.title), norm(m.title)]) {
+        if (!k) continue;
+        if (!wanted.has(k)) wanted.set(k, []);
+        wanted.get(k).push(m);
+      }
+    }
+  }
+  const count = new Set([...wanted.values()].flat()).size;
+  const accept = (file) => {
+    const base = file.fileName.replace(/\.[^.]+$/, '');
+    const titles = [file.title, base.split(/\s+[-–—]\s+/).pop(), base];
+    for (const t of titles) {
+      for (const k of [cleanTitle(t), norm(t)]) {
+        const items = wanted.get(k);
+        if (!items) continue;
+        const hay = norm(`${file.artist} ${base}`);
+        if (items.some((m) => { const at = artistTokens(m.artist); return !at.length || at.some((w) => hay.includes(w)) || !file.artist; })) return true;
+      }
+    }
+    return false;
+  };
+  return { accept, count };
+}

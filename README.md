@@ -1,7 +1,8 @@
-# SONORA pour iPhone (version web installable)
+# SONORA pour iPhone et Android (app installable)
 
 Ta musique, sans pub, sans abonnement, sans Mac, sans compte Apple Developer.
-SONORA s'installe depuis Safari sur l'écran d'accueil et fonctionne **hors ligne**, comme une vraie app.
+SONORA s'installe sur l'écran d'accueil (Safari sur iPhone, Chrome sur Android) et fonctionne **hors ligne**, comme une vraie app.
+**Un seul code pour les deux** : chaque mise à jour envoyée sur GitHub arrive sur iPhone ET Android.
 
 ---
 
@@ -29,6 +30,17 @@ Autres hébergeurs gratuits qui marchent aussi : Netlify (glisser-déposer le do
 
 Ensuite, plus besoin d'Internet : l'app et tes musiques sont sur le téléphone.
 
+## 2 bis. Installer sur Android
+
+**Méthode simple (recommandée)**
+1. Ouvre l'adresse de ton app dans **Chrome**.
+2. Touche le bouton **Installer** sur l'accueil de SONORA (ou menu **⋮** → **Ajouter à l'écran d'accueil** → **Installer**).
+3. Lance SONORA depuis l'icône.
+
+**Méthode APK (fichier .apk à partager)** : voir le guide détaillé plus bas, section « Créer l'APK Android ».
+
+Bonus Android : depuis l'app Fichiers, WhatsApp, Gmail…, touche **Partager** sur un fichier audio puis **SONORA** : il est importé directement. Le bouton retour du téléphone ferme le lecteur et les menus avant de quitter l'app.
+
 ## 3. Importer ta musique
 
 1. Mets tes fichiers dans l'app **Fichiers** de l'iPhone (iCloud Drive, « Sur mon iPhone », AirDrop depuis ton PC, clé USB…).
@@ -45,6 +57,10 @@ Titre, artiste, album, genre, **pochette** et durée sont lus automatiquement da
 - **Deezer** : colle le lien de la playlist (`https://www.deezer.com/fr/playlist/123456`). La playlist doit être **publique**. Les liens courts (`link.deezer.com/…`) : ouvre-les dans Safari et copie l'adresse complète. Les liens d'albums marchent aussi.
 - **Spotify** : depuis février 2026, Spotify interdit aux applis indépendantes de lire une playlist par son lien. Passe par **exportify.app** → Export → fichier .csv → dans SONORA, « Fichier CSV ».
 - **Autres** (Apple Music, YouTube Music, Tidal…) : exporte en CSV avec un service comme TuneMyMusic, ou colle une liste « Artiste - Titre ».
+
+### Retrouver les fichiers des titres en attente
+Sur la page d'une playlist (ou dans l'onglet Playlists), touche **« Retrouver les fichiers »**, ouvre ton dossier de musique dans le sélecteur, puis **Sélectionner → Tout sélectionner**. SONORA analyse chaque fichier et **ne garde que ceux qui manquent** à tes playlists ; les autres sont ignorés et n'encombrent pas ta bibliothèque.
+iOS ne permet à aucune app de fouiller seule dans le téléphone : la sélection reste à faire par toi, mais en un seul geste.
 
 ---
 
@@ -68,6 +84,23 @@ Titre, artiste, album, genre, **pochette** et durée sont lus automatiquement da
 - **Égaliseur** : pas inclus (même raison que la version native).
 - **Stockage** : l'espace est celui de ton iPhone. L'app demande à iOS de garder les données ; si tu supprimes l'icône de l'écran d'accueil, iOS efface aussi les musiques importées. Pense à **exporter tes playlists** (Réglages) de temps en temps.
 
+## Créer l'APK Android (optionnel)
+
+Même app, même adresse : l'APK ouvre ton site GitHub en plein écran. Les mises à jour GitHub arrivent donc aussi dans l'APK, sans le refaire.
+
+1. Va sur **pwabuilder.com**, colle `https://kiitaskk.github.io/sonora/`, clique **Start**.
+2. Clique **Package For Stores** → **Android** → **Generate Package** (garde les options par défaut, clé de signature « Create new ») → **Download Package**.
+3. Dans le zip téléchargé : l'**.apk** (à installer), l'**.aab** (pour le Play Store, inutile pour toi), **signing.keystore** + **signing-key-info.txt** (à garder précieusement), **assetlinks.json**.
+4. Mets l'.apk sur ton téléphone Android (Google Drive, câble USB, mail), ouvre-le, autorise « Installer des applis inconnues », puis **Installer** (si Play Protect prévient, « Installer quand même »).
+
+**Enlever la barre d'adresse en haut de l'APK** : crée un 2e dépôt GitHub nommé exactement `kiitaskk.github.io` (public), puis dedans **Add file → Create new file** :
+- nom `.well-known/assetlinks.json`, colle le contenu du fichier assetlinks.json du zip, Commit ;
+- nom `.nojekyll`, laisse vide, Commit ;
+- Settings → Pages → Branch **main** → Save.
+Vérifie que `https://kiitaskk.github.io/.well-known/assetlinks.json` s'affiche, puis ferme/rouvre l'app.
+
+N'installe pas **à la fois** la version Chrome et l'APK : elles partagent les mêmes données, garde-en une.
+
 ## Mettre à jour l'app plus tard
 
 Après avoir modifié des fichiers, change la ligne `VERSION` en haut de `sw.js` (ex. `sonora-v1.0.1`), puis renvoie les fichiers. L'iPhone récupère la nouvelle version au lancement suivant (ferme et rouvre l'app deux fois).
@@ -85,7 +118,7 @@ js/store.js            Bibliothèque, playlists, favoris, stats
 js/importer.js         Import de playlists (Deezer, CSV Spotify, liste)
 js/db.js               Stockage local (IndexedDB)
 js/tags.js             Lecture des tags MP3 / M4A / FLAC
-js/ui.js               Pochettes, dialogues, formatage
+js/ui.js               Pochettes, dialogues, bouton retour Android, formatage
 js/icons.js            Icônes
 icons/                 Icônes de l'app
 ```

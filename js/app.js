@@ -18,7 +18,10 @@ import {
   hydrateArt,
   normalize,
   openSheet,
+  overlayClosed,
+  overlayOpened,
   pickFile,
+  syncGuard,
   plural,
   shuffle,
   SORT_LABELS,
@@ -27,6 +30,18 @@ import {
 } from './ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
+const isAndroid = /Android/i.test(navigator.userAgent);
+const isStandalone = () => navigator.standalone || matchMedia('(display-mode: standalone)').matches || document.referrer.startsWith('android-app://');
+let installEvent = null; // invite d'installation Chrome (Android)
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installEvent = e;
+  if (route().name === 'home') render();
+});
+addEventListener('appinstalled', () => {
+  installEvent = null;
+  toast('SONORA est installée ✓');
+});
 const view = $('#view');
 const ui = {
   libView: 'tracks',
@@ -131,16 +146,21 @@ const VIEWS = {
     const all = S.allTracks();
     const h = new Date().getHours();
     const greet = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
-    const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-    const hint =
-      isIOS && !standalone && !ui.hintClosed
-        ? `<div class="install-hint">${icon('share', 22)}<div><b>Installe SONORA</b><br><span class="muted">Dans Safari : bouton Partager, puis « Sur l’écran d’accueil ». L’app s’ouvrira en plein écran, comme une vraie app.</span></div><button class="x" data-act="hide-hint" aria-label="Fermer">${icon('close', 18)}</button></div>`
-        : '';
+    const close = `<button class="x" data-act="hide-hint" aria-label="Fermer">${icon('close', 18)}</button>`;
+    let hint = '';
+    if (!isStandalone() && !ui.hintClosed) {
+      if (isIOS)
+        hint = `<div class="install-hint">${icon('share', 22)}<div><b>Installe SONORA</b><br><span class="muted">Dans Safari : bouton Partager, puis « Sur l’écran d’accueil ». L’app s’ouvrira en plein écran, comme une vraie app.</span></div>${close}</div>`;
+      else if (installEvent)
+        hint = `<div class="install-hint">${icon('import', 22)}<div style="flex:1"><b>Installe SONORA</b><br><span class="muted">Ajoute-la à ton téléphone : icône, plein écran, hors ligne.</span><br><button class="btn grad sm" style="margin-top:10px" data-act="install">${icon('import', 16)}Installer</button></div>${close}</div>`;
+      else if (isAndroid)
+        hint = `<div class="install-hint">${icon('import', 22)}<div><b>Installe SONORA</b><br><span class="muted">Dans Chrome : menu ⋮ en haut à droite, puis « Ajouter à l’écran d’accueil » → « Installer ».</span></div>${close}</div>`;
+    }
     let html = `<div class="row-between pad"><div class="wordmark"><div class="logo"><i style="height:9px"></i><i style="height:16px"></i><i style="height:11px"></i></div>SONORA</div>
       <button class="icon-btn" data-go="#/stats" aria-label="Statistiques">${icon('stats', 22)}</button></div>
       <div class="greet">${greet}</div>${hint}`;
     if (!all.length) {
-      return html + importCard() + emptyState('note', 'Ta bibliothèque est vide', 'Importe tes fichiers MP3, WAV, FLAC, AAC, M4A ou OGG depuis l’app Fichiers. Ils sont gardés dans SONORA et restent écoutables sans Internet.', importBtn());
+      return html + importCard() + emptyState('note', 'Ta bibliothèque est vide', 'Importe tes fichiers MP3, WAV, FLAC, AAC, M4A ou OGG depuis ton téléphone. Ils sont gardés dans SONORA et restent écoutables sans Internet.', importBtn());
     }
     const seen = new Set();
     const recent = [];
@@ -261,6 +281,9 @@ const VIEWS = {
     let html = `<div class="row-between pad" style="margin-bottom:12px"><h1 class="title">Playlists</h1><button class="icon-btn accent" data-act="new-pl" aria-label="Nouvelle playlist">${icon('plusCircle', 30)}</button></div>
       <button class="list-row" style="width:100%;text-align:left" data-go="#/favorites"><div class="fav-art">${icon('heart', 28)}</div><div style="flex:1"><div class="t">Titres likés</div><div class="muted" style="font-size:13px">Playlist automatique · ${plural(S.state.favorites.length, 'titre')}</div></div><span class="faint">${icon('right', 20)}</span></button>
       <button class="list-row" style="width:100%;text-align:left" data-act="import-pl"><div class="fav-art" style="background:linear-gradient(135deg,#a238ff,#ef5466)">${icon('import', 26)}</div><div style="flex:1"><div class="t">Importer une playlist</div><div class="muted" style="font-size:13px">Lien Deezer, export Spotify, liste…</div></div><span class="faint">${icon('right', 20)}</span></button>`;
+    const waiting = S.state.playlists.reduce((a, p) => a + (p.missing?.length || 0), 0);
+    if (waiting)
+      html += `<button class="list-row" style="width:100%;text-align:left" data-act="find-files"><div class="fav-art" style="background:linear-gradient(135deg,#2e7bff,#20d8c4)">${icon('search', 26)}</div><div style="flex:1"><div class="t">Retrouver les fichiers</div><div class="muted" style="font-size:13px">${plural(waiting, 'titre en attente', 'titres en attente')} dans tes playlists</div></div><span class="faint">${icon('right', 20)}</span></button>`;
     if (!pls.length) return html + emptyState('playlists', 'Crée ta première playlist', 'Autant de playlists que tu veux, avec ton image et l’ordre de ton choix.', `<button class="btn grad" data-act="new-pl">${icon('plus', 18)}Nouvelle playlist</button>`);
     return (
       html +
@@ -293,8 +316,9 @@ const VIEWS = {
     const miss = p.missing || [];
     const missHtml = miss.length
       ? `<div class="section" style="margin-top:20px"><button class="section-title" style="width:100%" data-act="toggle-missing"><h2 style="font-size:17px">En attente · ${miss.length}</h2><span class="faint">${icon(ui.showMissing ? 'up' : 'down', 20)}</span></button>
-        <p class="muted pad" style="font-size:13px;line-height:1.4;margin-top:-6px">Ces titres ne sont pas encore dans ta bibliothèque. Importe leurs fichiers : ils s’ajouteront tout seuls à cette playlist.</p>
-        ${ui.showMissing ? miss.map((m) => `<div class="trow" style="opacity:.55"><div class="art" style="width:44px;height:44px;border-radius:8px;background:var(--card2)"><span class="art-ic" style="color:var(--faint)">${icon('note', 18)}</span></div><div class="meta"><div class="t" style="font-size:15px">${esc(m.title)}</div><div class="s">${esc(m.artist || 'Artiste inconnu')}</div></div></div>`).join('') + `<div class="btns" style="margin-top:8px"><button class="btn ghost sm" data-act="import">${icon('import', 16)}Importer des fichiers</button><button class="btn ghost sm" style="color:var(--danger)" data-act="clear-missing" data-id="${p.id}">Ne plus attendre</button></div>` : ''}</div>`
+        <p class="muted pad" style="font-size:13px;line-height:1.4;margin-top:-6px">Ces titres ne sont pas encore dans ta bibliothèque. Touche « Retrouver les fichiers » et sélectionne tout un dossier de musique : SONORA ne garde que ceux qui manquent.</p>
+        <div class="btns"><button class="btn grad sm" data-act="find-files" data-id="${p.id}">${icon('search', 16)}Retrouver les fichiers</button></div>
+        ${ui.showMissing ? miss.map((m) => `<div class="trow" style="opacity:.55"><div class="art" style="width:44px;height:44px;border-radius:8px;background:var(--card2)"><span class="art-ic" style="color:var(--faint)">${icon('note', 18)}</span></div><div class="meta"><div class="t" style="font-size:15px">${esc(m.title)}</div><div class="s">${esc(m.artist || 'Artiste inconnu')}</div></div></div>`).join('') + `<div class="btns" style="margin-top:8px"><button class="btn grad sm" data-act="find-files" data-id="${p.id}">${icon('search', 16)}Retrouver les fichiers</button><button class="btn ghost sm" style="color:var(--danger)" data-act="clear-missing" data-id="${p.id}">Ne plus attendre</button></div>` : ''}</div>`
       : '';
     if (!tracks.length) return html + (miss.length ? '' : emptyState('note', 'Playlist vide', 'Ajoute des morceaux avec « Ajouter » ou depuis le menu ••• d’un titre.')) + missHtml;
     html += tracks
@@ -512,8 +536,10 @@ onProgress(() => {
 /* ============================ LECTEUR PLEIN ÉCRAN ======================= */
 const player = $('#player');
 let seeking = false;
+const closePlayerFromBack = () => closePlayer();
 function openPlayer() {
   if (!P.current) return;
+  overlayOpened(closePlayerFromBack);
   ui.playerOpen = true;
   renderPlayer(true);
   player.setAttribute('aria-hidden', 'false');
@@ -521,6 +547,7 @@ function openPlayer() {
   renderMini();
 }
 function closePlayer() {
+  overlayClosed(closePlayerFromBack);
   ui.playerOpen = false;
   player.classList.remove('open');
   player.setAttribute('aria-hidden', 'true');
@@ -751,6 +778,37 @@ function plAddSheet(pid) {
   draw(el);
 }
 
+/* ==================== RETROUVER LES FICHIERS EN ATTENTE ==================== */
+async function findFiles(playlistId) {
+  if (ui.importing) return;
+  const { accept, count } = IMP.wantedMatcher(playlistId);
+  if (!count) return toast('Aucun titre en attente');
+  const go = await dialog({
+    title: 'Retrouver les fichiers',
+    text: `${plural(count, 'titre est', 'titres sont')} en attente. ${isAndroid ? 'Dans le sélecteur, ouvre ton dossier de musique (Musique, Téléchargements…), fais un appui long sur un fichier puis « Tout sélectionner » dans le menu ⋮.' : 'Dans le sélecteur, ouvre ton dossier de musique (iCloud Drive, Sur mon iPhone…), touche « Sélectionner » puis « Tout sélectionner ».'} SONORA ne gardera que les morceaux qui manquent.`,
+    ok: 'Choisir les fichiers',
+  });
+  if (!go) return;
+  const files = await pickFile('file-input');
+  if (!files) return;
+  requestPersistence();
+  ui.importing = { done: 0, total: files.length };
+  render();
+  const res = await S.importFiles(files, (done, total, name) => ((ui.importing = { done, total, name }), S.emit()), { accept });
+  ui.importing = null;
+  const added = IMP.fillMissing();
+  const left = S.state.playlists.reduce((a, p) => a + (!playlistId || p.id === playlistId ? p.missing?.length || 0 : 0), 0);
+  S.emit();
+  dialog({
+    title: added ? `${plural(added, 'titre retrouvé', 'titres retrouvés')} !` : 'Aucun titre retrouvé',
+    text:
+      `${plural(files.length, 'fichier analysé', 'fichiers analysés')}, ${plural(res.imported, 'gardé', 'gardés')}${res.ignored ? `, ${res.ignored} ignoré${res.ignored > 1 ? 's' : ''} (pas dans tes playlists)` : ''}${res.duplicates ? `, ${res.duplicates} déjà dans ta bibliothèque` : ''}.` +
+      (left ? ` Encore ${left} en attente : ils ne sont pas dans les fichiers choisis.` : ' Ta playlist est complète.'),
+    ok: 'OK',
+    cancel: 'Fermer',
+  });
+}
+
 /* ======================= IMPORT DE PLAYLIST EXTERNE ======================= */
 function importPlaylistSheet(prefill = '') {
   openSheet(
@@ -813,7 +871,7 @@ function spotifyHelp(msg) {
     <b>Spotify bloque la lecture des playlists par lien</b> pour les applications indépendantes (règles de février 2026). Passe par un export CSV, ça prend 1 minute :
     <ol style="padding-left:20px;margin:8px 0">
       <li>Ouvre <b>exportify.app</b> et connecte-toi à Spotify.</li>
-      <li>Touche <b>Export</b> à côté de ta playlist : un fichier .csv est enregistré dans l’app Fichiers.</li>
+      <li>Touche <b>Export</b> à côté de ta playlist : un fichier .csv est enregistré sur ton téléphone.</li>
       <li>Reviens ici et touche <b>Fichier CSV</b>.</li>
     </ol>
     <span class="muted">Fonctionne avec les playlists que tu as créées toi-même.</span></div>`);
@@ -856,7 +914,7 @@ async function finishImport(list) {
 async function deleteTracks(ids, after) {
   const ok = await dialog({
     title: ids.length > 1 ? `Supprimer ${ids.length} morceaux ?` : 'Supprimer ce morceau ?',
-    text: 'Le fichier est effacé de SONORA et retiré de tes playlists. L’original dans l’app Fichiers n’est pas touché.',
+    text: 'Le fichier est effacé de SONORA et retiré de tes playlists. L’original sur ton téléphone n’est pas touché.',
     ok: 'Supprimer',
     danger: true,
   });
@@ -867,9 +925,9 @@ async function deleteTracks(ids, after) {
   after?.();
 }
 
-async function doImport() {
+async function doImport(given) {
   if (ui.importing) return;
-  const files = await pickFile('file-input');
+  const files = given?.length ? given : await pickFile('file-input');
   if (!files) return;
   requestPersistence();
   ui.importing = { done: 0, total: files.length };
@@ -902,8 +960,15 @@ const ACTS = {
   'shuffle-list': (el) => Player.playList(lists[el.dataset.list] || [], 0, { shuffle: true }),
   resume: () => (Player.play(), openPlayer()),
   more: (el) => trackSheet(el.dataset.id, { pl: el.dataset.pl, pli: el.dataset.pli }),
-  import: doImport,
+  import: () => doImport(),
   back: () => (history.length > 1 ? history.back() : (location.hash = '#/')),
+  async install() {
+    if (!installEvent) return;
+    installEvent.prompt();
+    const { outcome } = await installEvent.userChoice.catch(() => ({}));
+    if (outcome === 'accepted') installEvent = null;
+    render();
+  },
   'hide-hint': () => (localStorage.setItem('sonora-hint', '1'), (ui.hintClosed = true), render()),
   'clear-q': () => ((ui.q = ''), (lastRouteKey = ''), render()),
   field: (el) => ((ui.field = el.dataset.k), document.querySelectorAll('[data-act="field"]').forEach((c) => c.classList.toggle('on', c === el)), renderSearchResults()),
@@ -927,6 +992,7 @@ const ACTS = {
     location.hash = '#/playlist/' + id;
   },
   'import-pl': () => importPlaylistSheet(),
+  'find-files': (el) => findFiles(el.dataset.id),
   'toggle-missing': () => ((ui.showMissing = !ui.showMissing), render()),
   async 'clear-missing'(el) {
     if (await dialog({ title: 'Ne plus attendre ces titres ?', text: 'Ils seront retirés de la liste d’attente de cette playlist.', ok: 'Confirmer' })) S.patchPlaylist(el.dataset.id, { missing: [] });
@@ -1093,6 +1159,28 @@ async function updateStorage() {
     ${e.quota ? `<div class="meter" style="margin:8px 0"><div style="width:${Math.min(100, (e.usage / e.quota) * 100)}%"></div></div><p class="muted" style="font-size:12px">Musique ${fmtBytes(used)} · Disponible pour SONORA ${fmtBytes(Math.max(0, e.quota - e.usage))}</p>` : ''}`;
 }
 
+/** Fichiers audio envoyés à SONORA via le bouton « Partager » d'Android. */
+async function importShared() {
+  if (!('caches' in window)) return;
+  const params = new URLSearchParams(location.search);
+  if (params.has('shared')) history.replaceState(history.state, '', location.pathname + location.hash);
+  const cache = await caches.open('sonora-shared');
+  const keys = await cache.keys();
+  if (!keys.length) return;
+  const files = [];
+  for (const k of keys) {
+    const r = await cache.match(k);
+    if (!r) continue;
+    const b = await r.blob();
+    files.push(new File([b], decodeURIComponent(r.headers.get('x-name') || 'musique.mp3'), { type: b.type }));
+  }
+  await caches.delete('sonora-shared');
+  if (files.length) {
+    if (route().name !== 'library') location.hash = '#/library';
+    await doImport(files);
+  }
+}
+
 /* =============================== DÉMARRAGE ============================== */
 async function boot() {
   const tabs = [['home', 'Accueil'], ['search', 'Recherche'], ['library', 'Bibliothèque'], ['playlists', 'Playlists'], ['settings', 'Réglages']];
@@ -1111,6 +1199,7 @@ async function boot() {
     if (route().name === 'settings') updateStorage();
   });
   addEventListener('hashchange', () => {
+    syncGuard();
     ui.plEdit = false;
     if (route().name !== 'library') ui.selection = null;
     closeSheet(true);
@@ -1121,6 +1210,7 @@ async function boot() {
   render();
   if (route().name === 'settings') updateStorage();
   S.fixDurations();
+  importShared().catch((e) => console.warn('partage', e));
   if (S.state.tracks.size) requestPersistence();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW', e));
 }
