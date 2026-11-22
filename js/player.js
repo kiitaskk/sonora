@@ -57,6 +57,9 @@ export const onProgress = (fn) => (progressSubs.add(fn), () => progressSubs.dele
 
 const urls = new Map(); // élément audio → URL du fichier chargé
 let fade = null; // fondu en cours : { from, timer }
+let pre = null; // morceau suivant déjà chargé dans le 2e lecteur : { id, el }
+let preparing = false;
+let resumeWanted = false; // lecture refusée en arrière-plan : on relance au retour dans l'app
 let loadToken = 0;
 let lastTick = 0;
 let listenAcc = { id: null, sec: 0 };
@@ -80,6 +83,7 @@ function setSrc(el, blob) {
 }
 
 function stopEl(el) {
+  if (pre?.el === el) pre = null;
   el.pause();
   const u = urls.get(el);
   el.removeAttribute('src');
@@ -126,8 +130,10 @@ async function loadIndex(i, { autoplay = true, position = 0, log = true } = {}) 
   if (autoplay) {
     try {
       await audio.play();
+      resumeWanted = false;
     } catch (e) {
       console.warn('play bloqué', e);
+      if (e?.name === 'NotAllowedError') resumeWanted = true;
     }
   }
   if (log && autoplay) logPlay(id);
@@ -144,59 +150,106 @@ function nextIndex() {
   return null;
 }
 
-let fadeStarting = false;
-async function maybeStartFade() {
-  const secs = canFade ? Number(state.settings.crossfade) || 0 : 0;
-  if (!secs || fade || fadeStarting || !P.playing) return;
-  const d = audio.duration;
-  if (!isFinite(d) || d <= 0) return;
-  const len = Math.min(secs, d * 0.4);
-  if (d - audio.currentTime > len) return;
+/**
+ * Prépare le morceau suivant dans le 2e lecteur, bien avant la fin du morceau en cours.
+ * Au moment de l'enchaînement il n'y a donc plus rien à charger : il démarre instantanément.
+ */
+async function prepareNext() {
+  if (isIOS || preparing || fade) return;
   const ni = nextIndex();
   if (ni === null) return;
-  const t = getTrack(P.queue[ni]);
+  const id = P.queue[ni];
+  if (pre && pre.id === id && pre.el === other()) return;
+  const t = getTrack(id);
   if (!t) return;
-  fadeStarting = true;
+  preparing = true;
   try {
     const blob = await db.getBlob(t.audioKey);
-    if (!blob || fade || !P.playing) return;
-    const from = audio;
-    const prevIndex = P.index;
-    const to = other();
-    setSrc(to, blob);
-    to.volume = 0;
-    // Le nouveau morceau devient le morceau affiché dès le début du fondu
-    audio = to;
-    P.index = ni;
-    flushListen();
+    if (!blob || fade || P.queue[nextIndex()] !== id) return;
+    const el = other();
+    setSrc(el, blob);
+    el.volume = 0;
+    el.preload = 'auto';
     try {
-      await to.play();
-    } catch (e) {
-      // Lecture refusée : on revient au lecteur précédent sans fondu
-      audio = from;
-      P.index = prevIndex;
-      stopEl(to);
-      return;
-    }
-    logPlay(P.queue[ni]);
-    updateMediaSession();
-    persist();
-    emit();
-    const start = performance.now();
-    const remaining = Math.max(0.3, Math.min(len, (from.duration || len) - from.currentTime));
-    fade = {
-      from,
-      timer: setInterval(() => {
-        const k = Math.min(1, (performance.now() - start) / (remaining * 1000));
-        // Courbe « puissance constante » : pas de creux de volume au milieu
-        to.volume = userVolume * Math.sin((k * Math.PI) / 2);
-        from.volume = userVolume * Math.cos((k * Math.PI) / 2);
-        if (k >= 1 || from.ended || from.paused) endFade();
-      }, 50),
-    };
+      el.load();
+    } catch {}
+    pre = { id, el };
   } finally {
-    fadeStarting = false;
+    preparing = false;
   }
+}
+
+/**
+ * Démarre le morceau préparé. Le son ne s'interrompt jamais entre deux titres :
+ * c'est ce qui empêche Android de couper la lecture écran verrouillé.
+ * fadeLen = durée du fondu (quelques dixièmes de seconde si le fondu enchaîné est réglé sur 0).
+ */
+function startNext(fadeLen) {
+  const ni = nextIndex();
+  if (ni === null) return false;
+  const id = P.queue[ni];
+  if (!pre || pre.id !== id || pre.el !== other()) return false;
+  const from = audio;
+  const to = pre.el;
+  const prevIndex = P.index;
+  pre = null;
+  audio = to;
+  P.index = ni;
+  flushListen();
+  const smooth = fadeLen > 0 && !from.ended && !from.paused;
+  to.volume = smooth ? 0 : userVolume;
+  to.play()
+    .then(() => (resumeWanted = false))
+    .catch((e) => {
+      console.warn('enchaînement bloqué', e);
+      if (audio !== to) return;
+      if (!from.ended && !from.paused) {
+        // Le morceau précédent joue encore : on y revient, sans coupure
+        if (fade) clearInterval(fade.timer);
+        fade = null;
+        stopEl(to);
+        audio = from;
+        P.index = prevIndex;
+        from.volume = userVolume;
+      } else {
+        P.playing = false;
+        resumeWanted = true;
+      }
+      emit();
+    });
+  logPlay(id);
+  updateMediaSession();
+  persist();
+  emit();
+  if (!smooth) {
+    stopEl(from);
+    return true;
+  }
+  const t0 = performance.now();
+  const len = Math.max(0.05, Math.min(fadeLen, (from.duration || fadeLen) - from.currentTime));
+  fade = {
+    from,
+    timer: setInterval(() => {
+      const k = Math.min(1, (performance.now() - t0) / (len * 1000));
+      // Courbe « puissance constante » : pas de creux de volume au milieu
+      to.volume = userVolume * Math.sin((k * Math.PI) / 2);
+      from.volume = userVolume * Math.cos((k * Math.PI) / 2);
+      if (k >= 1 || from.ended || from.paused) endFade();
+    }, 40),
+  };
+  return true;
+}
+
+/** Appelé pendant la lecture : prépare puis lance le suivant au bon moment. */
+function onTick() {
+  if (isIOS || fade || !P.playing) return;
+  const d = audio.duration;
+  if (!isFinite(d) || d <= 0) return;
+  const rem = d - audio.currentTime;
+  if (rem <= 30) prepareNext();
+  const secs = canFade ? Number(state.settings.crossfade) || 0 : 0;
+  const win = secs > 0 ? Math.min(secs, d * 0.4) : 0.45;
+  if (rem <= win) startNext(secs > 0 ? win : rem);
 }
 
 function persist() {
@@ -234,6 +287,12 @@ function setupMediaSession() {
   h('stop', () => Player.pause());
 }
 
+function setMsState(st) {
+  try {
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = st;
+  } catch {}
+}
+
 function updatePositionState() {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
   const d = P.duration;
@@ -253,13 +312,15 @@ export function initPlayer() {
   for (const el of [elA, elB]) {
     el.addEventListener('play', () => {
       if (el !== audio) return;
+      setMsState('playing');
       P.playing = true;
       lastTick = performance.now();
       updatePositionState();
       emit();
     });
     el.addEventListener('pause', () => {
-      if (el !== audio) return;
+      if (el !== audio || (el.ended && pre)) return; // fin de morceau avec suivant prêt : pas une vraie pause
+      setMsState('paused');
       P.playing = false;
       flushListen();
       persist();
@@ -277,14 +338,18 @@ export function initPlayer() {
       }
       lastTick = now;
       progressSubs.forEach((f) => f());
-      maybeStartFade();
+      onTick();
     });
     el.addEventListener('loadedmetadata', () => el === audio && updatePositionState());
     el.addEventListener('ended', () => el === audio && onEnded());
   }
   setInterval(() => P.playing && persist(), 5000);
   window.addEventListener('pagehide', persist);
-  document.addEventListener('visibilitychange', () => document.hidden && persist());
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return persist();
+    // De retour dans l'app : si Android avait bloqué l'enchaînement, on relance
+    if (resumeWanted && audio.src) audio.play().then(() => (resumeWanted = false)).catch(() => {});
+  });
 
   // Reprise de la dernière écoute (en pause)
   const s = state.session;
@@ -312,6 +377,7 @@ function onEnded() {
     logPlay(P.queue[P.index]);
     return;
   }
+  if (!isIOS && startNext(0)) return;
   if (P.index < P.queue.length - 1) loadIndex(P.index + 1);
   else if (P.repeat === 'all' && P.queue.length) loadIndex(0);
   else {
@@ -347,6 +413,7 @@ export const Player = {
     return loadIndex(Math.max(0, valid.indexOf(startId)));
   },
   play() {
+    resumeWanted = false;
     if (!audio.src && P.queue.length) return loadIndex(P.index);
     return audio.play().catch(() => {});
   },
