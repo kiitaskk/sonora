@@ -475,7 +475,7 @@ const VIEWS = {
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:28px 16px 0">
         <div class="wordmark" style="font-size:16px"><div class="logo" style="width:22px;height:22px"><i style="height:7px"></i><i style="height:12px"></i><i style="height:9px"></i></div>SONORA</div>
-        <p class="muted" style="text-align:center;font-size:12px;line-height:1.5">Version 1.0 · Sans publicité · Sans abonnement · Sans compte<br>Aucune donnée ne quitte ton téléphone.</p>
+        <p class="muted" style="text-align:center;font-size:12px;line-height:1.5">Version 1.4.2 · Sans publicité · Sans abonnement · Sans compte<br>Aucune donnée ne quitte ton téléphone.</p>
       </div>`;
   },
 };

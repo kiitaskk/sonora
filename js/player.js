@@ -2,6 +2,8 @@
 import { db } from './db.js';
 import { addListen, blobUrl, emit, getTrack, logPlay, setSession, state } from './store.js';
 
+export const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 // Deux lecteurs audio : pendant un fondu enchaîné, le suivant démarre pendant que l'actuel s'éteint.
 const elA = document.getElementById('audio');
 const elB = document.createElement('audio');
@@ -9,9 +11,54 @@ elB.preload = 'auto';
 elB.setAttribute('playsinline', '');
 document.body.appendChild(elB);
 let audio = elA; // lecteur actif (celui du morceau affiché)
+
+/**
+ * Flux de maintien : un son inaudible (≈ -90 dB) joué en boucle tant que SONORA est « en lecture ».
+ * En veille, Android ralentit fortement les apps : sans lui, entre deux morceaux le son s'arrête,
+ * Android retire la notification de lecture et fige l'app avant que le morceau suivant ne démarre.
+ * Avec lui, l'app « joue » en continu : le morceau suivant démarre même si le code se réveille en retard.
+ */
+function quietWav(seconds) {
+  const rate = 8000;
+  const n = rate * seconds;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF');
+  v.setUint32(4, 36 + n * 2, true);
+  w(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  w(36, 'data');
+  v.setUint32(40, n * 2, true);
+  // Signal minuscule mais non nul (sinon Android peut le considérer comme « pas de son »)
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, i % 2 ? 1 : -1, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+const keep = document.createElement('audio');
+keep.loop = true;
+keep.preload = 'auto';
+keep.setAttribute('playsinline', '');
+keep.dataset.keepalive = '1';
+document.body.appendChild(keep);
+let keepReady = false;
+function keepAlive(on) {
+  if (isIOS) return;
+  if (on) {
+    if (!keepReady) {
+      keep.src = URL.createObjectURL(quietWav(12));
+      keepReady = true;
+    }
+    if (keep.paused) keep.play().catch(() => {});
+  } else if (!keep.paused) keep.pause();
+}
 const other = () => (audio === elA ? elB : elA);
 
-export const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 /** Le fondu demande de pouvoir régler le volume, ce que Safari iOS interdit aux apps web. */
 export const canFade = (() => {
   if (isIOS) return false;
@@ -101,6 +148,7 @@ function endFade() {
   stopEl(fade.from);
   fade = null;
   audio.volume = userVolume;
+  prepareNext();
 }
 
 async function loadIndex(i, { autoplay = true, position = 0, log = true } = {}) {
@@ -133,7 +181,11 @@ async function loadIndex(i, { autoplay = true, position = 0, log = true } = {}) 
       resumeWanted = false;
     } catch (e) {
       console.warn('play bloqué', e);
-      if (e?.name === 'NotAllowedError') resumeWanted = true;
+      if (e?.name === 'NotAllowedError') {
+        resumeWanted = true;
+        P.playing = false;
+        emit();
+      }
     }
   }
   if (log && autoplay) logPlay(id);
@@ -313,14 +365,19 @@ export function initPlayer() {
     el.addEventListener('play', () => {
       if (el !== audio) return;
       setMsState('playing');
+      keepAlive(true);
       P.playing = true;
+      prepareNext(); // le suivant est prêt bien à l'avance, même si l'app est ensuite endormie
       lastTick = performance.now();
       updatePositionState();
       emit();
     });
     el.addEventListener('pause', () => {
-      if (el !== audio || (el.ended && pre)) return; // fin de morceau avec suivant prêt : pas une vraie pause
+      if (el !== audio) return;
+      // Fin naturelle d'un morceau avec un suivant : ce n'est pas une pause, on garde tout actif
+      if (el.ended && nextIndex() !== null) return;
       setMsState('paused');
+      if (!el.ended) keepAlive(false);
       P.playing = false;
       flushListen();
       persist();
@@ -368,6 +425,9 @@ export function initPlayer() {
 function onEnded() {
   if (P.sleepEnd) {
     cancelSleep();
+    P.playing = false;
+    keepAlive(false);
+    setMsState('paused');
     emit();
     return;
   }
@@ -382,6 +442,8 @@ function onEnded() {
   else if (P.repeat === 'all' && P.queue.length) loadIndex(0);
   else {
     P.playing = false;
+    keepAlive(false);
+    setMsState('paused');
     audio.currentTime = 0;
     emit();
   }
@@ -396,6 +458,7 @@ function cancelSleep() {
 
 export const Player = {
   playList(ids, start = 0, { shuffle } = {}) {
+    keepAlive(true); // dans le geste de l'utilisateur : toujours autorisé
     const valid = ids.filter((id) => getTrack(id));
     if (!valid.length) return;
     const startId = getTrack(ids[start]) ? ids[start] : valid[0];
@@ -414,11 +477,13 @@ export const Player = {
   },
   play() {
     resumeWanted = false;
+    keepAlive(true);
     if (!audio.src && P.queue.length) return loadIndex(P.index);
     return audio.play().catch(() => {});
   },
   pause() {
     endFade();
+    keepAlive(false);
     audio.pause();
   },
   toggle() {
@@ -449,7 +514,7 @@ export const Player = {
     updatePositionState();
     progressSubs.forEach((f) => f());
   },
-  jumpTo: (i) => loadIndex(i),
+  jumpTo: (i) => (keepAlive(true), loadIndex(i)),
   setVolume(v) {
     userVolume = Math.max(0, Math.min(1, v));
     if (!fade) audio.volume = userVolume;
@@ -545,6 +610,7 @@ export const Player = {
       P.sleepAt = Date.now() + min * 60000;
       sleepTimer = setTimeout(() => {
         endFade();
+        keepAlive(false);
         audio.pause();
         cancelSleep();
         emit();
