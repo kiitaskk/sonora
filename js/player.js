@@ -2,6 +2,30 @@
 import { db } from './db.js';
 import { addListen, blobUrl, emit, getTrack, logPlay, setSession, state } from './store.js';
 
+/* Journal de lecture (dépannage) : derniers événements, gardés dans le téléphone */
+const LOG_KEY = 'sonora-log';
+export function jlog(msg) {
+  try {
+    const t = new Date();
+    const line = `${t.toLocaleTimeString('fr-FR')} ${document.hidden ? '🌙' : '☀️'} ${msg}`;
+    const arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+    arr.push(line);
+    localStorage.setItem(LOG_KEY, JSON.stringify(arr.slice(-80)));
+  } catch {}
+}
+export const getLog = () => {
+  try {
+    return JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+  } catch {
+    return [];
+  }
+};
+export const clearLog = () => {
+  try {
+    localStorage.removeItem(LOG_KEY);
+  } catch {}
+};
+
 export const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 // Deux lecteurs audio : pendant un fondu enchaîné, le suivant démarre pendant que l'actuel s'éteint.
@@ -54,7 +78,7 @@ function keepAlive(on) {
       keep.src = URL.createObjectURL(quietWav(12));
       keepReady = true;
     }
-    if (keep.paused) keep.play().catch(() => {});
+    if (keep.paused) keep.play().catch((e) => jlog('maintien refusé : ' + e.name));
   } else if (!keep.paused) keep.pause();
 }
 const other = () => (audio === elA ? elB : elA);
@@ -177,10 +201,12 @@ async function loadIndex(i, { autoplay = true, position = 0, log = true } = {}) 
   }
   if (autoplay) {
     try {
+      jlog('lecture → ' + t.title);
       await audio.play();
       resumeWanted = false;
     } catch (e) {
       console.warn('play bloqué', e);
+      jlog('lecture refusée : ' + e.name);
       if (e?.name === 'NotAllowedError') {
         resumeWanted = true;
         P.playing = false;
@@ -248,12 +274,15 @@ function startNext(fadeLen) {
   audio = to;
   P.index = ni;
   flushListen();
-  const smooth = fadeLen > 0 && !from.ended && !from.paused;
+  // Fondu seulement app à l'écran : en veille, Android gèle les minuteries qui remontent le volume
+  const smooth = fadeLen > 0 && !document.hidden && !from.ended && !from.paused;
   to.volume = smooth ? 0 : userVolume;
+  jlog(`suivant (${smooth ? 'fondu' : from.ended ? 'fin du morceau' : 'enchaîné'}) → ${getTrack(id)?.title}`);
   to.play()
     .then(() => (resumeWanted = false))
     .catch((e) => {
       console.warn('enchaînement bloqué', e);
+      jlog('lecture du suivant refusée : ' + e.name);
       if (audio !== to) return;
       if (!from.ended && !from.paused) {
         // Le morceau précédent joue encore : on y revient, sans coupure
@@ -281,6 +310,7 @@ function startNext(fadeLen) {
   const len = Math.max(0.05, Math.min(fadeLen, (from.duration || fadeLen) - from.currentTime));
   fade = {
     from,
+    endAt: t0 + len * 1000,
     timer: setInterval(() => {
       const k = Math.min(1, (performance.now() - t0) / (len * 1000));
       // Courbe « puissance constante » : pas de creux de volume au milieu
@@ -294,14 +324,23 @@ function startNext(fadeLen) {
 
 /** Appelé pendant la lecture : prépare puis lance le suivant au bon moment. */
 function onTick() {
-  if (isIOS || fade || !P.playing) return;
+  if (isIOS || !P.playing) return;
+  if (fade) {
+    // Sécurité : si la minuterie du fondu a été gelée, on termine le fondu tout de suite
+    if (document.hidden || performance.now() > fade.endAt + 1500) endFade();
+    return;
+  }
+  // Sécurité : le morceau en cours ne doit jamais rester à un volume réduit
+  if (Math.abs(audio.volume - userVolume) > 0.01) audio.volume = userVolume;
   const d = audio.duration;
   if (!isFinite(d) || d <= 0) return;
   const rem = d - audio.currentTime;
   if (rem <= 30) prepareNext();
-  const secs = canFade ? Number(state.settings.crossfade) || 0 : 0;
-  const win = secs > 0 ? Math.min(secs, d * 0.4) : 0.45;
-  if (rem <= win) startNext(secs > 0 ? win : rem);
+  const secs = canFade && !document.hidden ? Number(state.settings.crossfade) || 0 : 0;
+  if (secs > 0) {
+    const win = Math.min(secs, d * 0.4);
+    if (rem <= win) startNext(win);
+  } else if (rem <= 0.3) startNext(0); // bascule nette, volume plein, sans minuterie
 }
 
 function persist() {
@@ -376,6 +415,7 @@ export function initPlayer() {
       if (el !== audio) return;
       // Fin naturelle d'un morceau avec un suivant : ce n'est pas une pause, on garde tout actif
       if (el.ended && nextIndex() !== null) return;
+      jlog(el.ended ? 'fin de la file' : 'pause');
       setMsState('paused');
       if (!el.ended) keepAlive(false);
       P.playing = false;
@@ -398,12 +438,17 @@ export function initPlayer() {
       onTick();
     });
     el.addEventListener('loadedmetadata', () => el === audio && updatePositionState());
-    el.addEventListener('ended', () => el === audio && onEnded());
+    el.addEventListener('ended', () => el === audio && (jlog('fin du morceau'), onEnded()));
+    el.addEventListener('error', () => el === audio && jlog('erreur du lecteur : ' + (el.error?.message || el.error?.code || '?')));
   }
   setInterval(() => P.playing && persist(), 5000);
   window.addEventListener('pagehide', persist);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return persist();
+    jlog(document.hidden ? 'écran éteint / app en arrière-plan' : 'retour dans l’app');
+    if (document.hidden) {
+      endFade(); // en veille les minuteries sont gelées : pas de fondu à moitié fini
+      return persist();
+    }
     // De retour dans l'app : si Android avait bloqué l'enchaînement, on relance
     if (resumeWanted && audio.src) audio.play().then(() => (resumeWanted = false)).catch(() => {});
   });

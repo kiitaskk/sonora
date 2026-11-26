@@ -1,7 +1,7 @@
 // SONORA — application web installable (PWA). Pages, navigation et interactions.
 import { requestPersistence, storageEstimate } from './db.js';
 import { icon } from './icons.js';
-import { canFade, initPlayer, isIOS, onProgress, P, Player } from './player.js';
+import { canFade, clearLog, getLog, initPlayer, isIOS, onProgress, P, Player } from './player.js';
 import * as S from './store.js';
 import * as IMP from './importer.js';
 import {
@@ -468,6 +468,10 @@ const VIEWS = {
         <div style="padding:14px" id="storage"><p class="muted">Calcul de l’espace…</p></div>
         ${row('trash', 'Tout supprimer', 'data-act="wipe"', '', 'danger')}
       </div>
+      <div class="group-t">DÉPANNAGE</div><div class="group">
+        ${row('clock', 'Journal de lecture', 'data-act="show-log"')}
+        <p class="muted" style="font-size:12px;padding:4px 14px 14px">Si la musique se coupe, ouvre ce journal et envoie une capture : il montre ce que le téléphone a fait à chaque changement de morceau. 🌙 = écran éteint.</p>
+      </div>
       <div class="group-t">SAUVEGARDE DES PLAYLISTS</div><div class="group">
         ${row('share', 'Exporter playlists et favoris', 'data-act="export"')}
         ${row('import', 'Restaurer une sauvegarde', 'data-act="restore"')}
@@ -475,7 +479,7 @@ const VIEWS = {
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:28px 16px 0">
         <div class="wordmark" style="font-size:16px"><div class="logo" style="width:22px;height:22px"><i style="height:7px"></i><i style="height:12px"></i><i style="height:9px"></i></div>SONORA</div>
-        <p class="muted" style="text-align:center;font-size:12px;line-height:1.5">Version 1.4.2 · Sans publicité · Sans abonnement · Sans compte<br>Aucune donnée ne quitte ton téléphone.</p>
+        <p class="muted" style="text-align:center;font-size:12px;line-height:1.5">Version 1.4.3 · Sans publicité · Sans abonnement · Sans compte<br>Aucune donnée ne quitte ton téléphone.</p>
       </div>`;
   },
 };
@@ -1002,6 +1006,22 @@ const ACTS = {
     location.hash = '#/playlist/' + id;
   },
   'import-pl': () => importPlaylistSheet(),
+  'show-log'() {
+    const lines = getLog().slice().reverse();
+    openSheet(
+      `<div class="dlg"><div class="row-between"><h3>Journal de lecture</h3><button class="btn ghost sm" data-l="clear">Effacer</button></div>
+        <p class="muted" style="font-size:12px">Du plus récent au plus ancien. Version 1.4.3 · ${esc(navigator.userAgent.match(/Android [\d.]+|iPhone OS [\d_]+/)?.[0] || '')} · ${isStandalone() ? 'app installée' : 'onglet Chrome / raccourci'}</p>
+        <div style="font-family:ui-monospace,monospace;font-size:12px;line-height:1.55;background:var(--card);border-radius:12px;padding:10px;max-height:55vh;overflow:auto;user-select:text;-webkit-user-select:text">${lines.length ? lines.map(esc).join('<br>') : 'Vide pour l’instant : écoute quelques morceaux.'}</div></div>`,
+      (el, close) =>
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('[data-l="clear"]')) {
+            clearLog();
+            close();
+            toast('Journal effacé');
+          }
+        }),
+    );
+  },
   'find-files': (el) => findFiles(el.dataset.id),
   'toggle-missing': () => ((ui.showMissing = !ui.showMissing), render()),
   async 'clear-missing'(el) {
